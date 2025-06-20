@@ -1,0 +1,70 @@
+name: Cid Manager Number Area Reset python script
+
+on:
+  workflow_dispatch: # Allows manual trigger of the workflow
+  # push:
+  #  branches:
+  #    - master
+
+  schedule:
+   - cron: '15 * * * *'
+ 
+jobs:
+  execute-script:
+    runs-on: [telia-managed-medium]
+    timeout-minutes: 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+      # Step 2: Set up Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+          python-version: '3.11.10'
+          
+
+    - name: Install dependencies
+      run: |
+         python -m pip install cx_Oracle python-dotenv requests configparser  --upgrade
+
+
+    - name: Download and install client Oracle instant client
+      run: |
+        sudo chmod u+x scripts/oracle_client_install.sh
+        sh scripts/oracle_client_install.sh
+          
+    - name: Execute the script
+      id: execute_script
+      
+      env:
+        tiksu_username: ${{secrets.TIKSU_USER}}
+        tiksu_password: ${{secrets.TIKSU_PASSWORD}}
+        db_username: ${{secrets.DB_USER}}
+        db_password: ${{secrets.DB_PASSWORD}}
+        
+      run: |
+        export https_proxy=http://proxy-fi.cdc.telia.net:8080
+        export http_proxy=
+        python NumberAreaSplit.py
+
+    - name: Send email notification
+      if:  ${{ failure() && steps.execute_script.conclusion == 'failure' }}
+      uses: telia-actions/mutt-email-action@v1
+      with:
+        recipients: sireesha.konda@teliacompany.com
+        from: ${{ secrets.EMAIL_ACTION_SENDER }}
+        subject: 'Build failed in GitHub Actions: ${{ github.workflow }} - ${{ github.run_number }}'
+        body: |
+          GitHub Actions Workflow *${{ github.workflow }}* failed
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Actor: ${{ github.actor }}
+          
+          View full logs at: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Please check the details and fix the issue.
+        smtp_url: ${{ secrets.EMAIL_ACTION_SMTP_URL }}
+        realname: ${{ secrets.EMAIL_ACTION_REALNAME }}
